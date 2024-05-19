@@ -1,3 +1,4 @@
+import asyncio
 from multicast import multicast
 from multicast_listen import multicast_listen
 
@@ -6,11 +7,19 @@ PORT = 50007
 
 message = "tymon"
 
-print("start multicast")
-multicast(MULTICAST_ADDR, PORT, message)
-print("start listening for response")
-data, addr = multicast_listen(MULTICAST_ADDR, PORT, debug=True)
+async def main():
 
-print(data, addr)
+    print("start multicast")
+    multicast(MULTICAST_ADDR, PORT, message)
+    print("start listening for response")
+    data, addr = await multicast_listen(MULTICAST_ADDR, PORT)
+    print(f"Response received from: {addr} with: {data.decode()}")
 
+    msg = input("> ")
+    while msg != '':
+        data, addr = await multicast_listen(MULTICAST_ADDR, PORT, debug=True)
+        
+        msg = input("> ")
+        multicast(MULTICAST_ADDR, PORT, msg)
 
+asyncio.run(main())

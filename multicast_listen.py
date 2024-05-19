@@ -4,7 +4,7 @@ import struct
 # MULTICAST_ADDR = '224.0.0.1'
 # PORT = 50007
 
-def multicast_listen(MULTICAST_ADDR, PORT, debug=False):
+async def multicast_listen(MULTICAST_ADDR, PORT, debug=False):
     # UDP socket
     sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
 

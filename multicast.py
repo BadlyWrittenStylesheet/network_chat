@@ -5,12 +5,13 @@ import socket
 
 # message = "H-Hii!1!!"
 
-def multicast(MULTICAST_ADDR, PORT, message):
+def multicast(MULTICAST_ADDR, PORT, message, debug=False):
 
     with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as sock:
         sock.setsockopt(socket.IPPROTO_IP, socket.IP_MULTICAST_TTL, 2)
 
         sock.sendto(message.encode(), (MULTICAST_ADDR, PORT))
-        print("Message sent successfully")
+        if debug:
+            print("Message sent successfully")
 
 
