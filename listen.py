@@ -4,11 +4,10 @@ s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
 
 HOST, PORT = '', 50007
 
-a = 3
-
 
 
 with s:
+    print(f"Listening on {HOST} {PORT}")
     s.bind((HOST, PORT))
     s.listen(1)
     # print("Connected by", addr)

@@ -1,7 +1,7 @@
 import socket
 
 message = b'Hello there!1!!'
-broadcast_address = '<broadcast>'
+broadcast_address = '255.255.255.255'
 port = 50007
 
 with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as udp_socket:
