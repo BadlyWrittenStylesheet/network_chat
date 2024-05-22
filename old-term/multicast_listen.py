@@ -4,7 +4,7 @@ import struct
 # MULTICAST_ADDR = '224.0.0.1'
 # PORT = 50007
 
-async def multicast_listen(MULTICAST_ADDR, PORT, debug=False):
+async def multicast_listen(MULTICAST_ADDR: str, PORT: int, write_list: list, debug: bool=False):
     # UDP socket
     sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
 
@@ -19,6 +19,9 @@ async def multicast_listen(MULTICAST_ADDR, PORT, debug=False):
         print(f"Listening on: {MULTICAST_ADDR}, {PORT}")
     while True:
         data, addr = sock.recvfrom(1024)
-        print(f"Received message:\n{data.decode()}\nfrom {addr}")
-        return data, addr
+        write_list.append((data, addr))
+        if debug:
+            print(f"Received message:\n{data.decode()}\nfrom {addr}")
+
+        
         
