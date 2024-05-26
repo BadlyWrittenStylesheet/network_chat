@@ -10,7 +10,7 @@ async def write_message(writer: asyncio.StreamWriter, msg_bytes: bytes):
     await writer.drain()
 
 async def broadcast_message(message: str, blacklist=[], newline: bool=True):
-    print(f"Broadcast: {message.strip()} to all except: {', '.join(blacklist)}")
+    print(f"Broadcast: {message.strip()} to all except: {blacklist}")
     global ALL_USERS
     if newline:
         message = message + "\n"
@@ -24,8 +24,9 @@ async def broadcast_message(message: str, blacklist=[], newline: bool=True):
         if n not in blacklist:
             people[n] = (r, w)
 
-    tasks = [asyncio.create_task(write_message(w, msg_bytes)) for _, (_, w) in people.items()]
-    await asyncio.wait(tasks)
+    if people:
+        tasks = [asyncio.create_task(write_message(w, msg_bytes)) for _, (_, w) in people.items()]
+        await asyncio.wait(tasks)
 
 
 async def connect_user(reader: asyncio.StreamReader, writer: asyncio.StreamWriter):
@@ -57,8 +58,12 @@ async def handle_chat_client(reader: asyncio.StreamReader, writer: asyncio.Strea
             line_bytes = await reader.readline()
             line = line_bytes.decode()
 
-            if line.strip() == 'QUIT': # ahh ten strip, prawie sie poplakalem jak to znalazlem
+            if line.strip() == 'QUIT': # took long to find really, awful...
                 break
+            elif line.strip() == 'LIST':
+                # await broadcast_message("\n".join(list(map(lambda n, (w, r): f"{n} ({w.get_extra_info()})", ALL_USERS.items()))))
+                await broadcast_message("\n".join([f"{n} ({r.get_extra_info('peername')})" for n, (w, r) in ALL_USERS.items()]))
+                continue
             await broadcast_message(f"{name}: {line}", blacklist=[name], newline=False)
     finally:
         
@@ -67,7 +72,7 @@ async def handle_chat_client(reader: asyncio.StreamReader, writer: asyncio.Strea
 
 async def main():
 
-    host_addr, host_port = '127.0.0.1', 50007
+    host_addr, host_port = '', 50007
 
     server = await asyncio.start_server(handle_chat_client, host_addr, host_port)
 
