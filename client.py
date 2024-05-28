@@ -2,25 +2,47 @@ import asyncio
 import sys
 
 
-async def write_messages(writer):
+data = {}
+
+async def send_messages(writer):
     while True:
         message = await asyncio.to_thread(sys.stdin.readline)
-        writer.write(message.encode())
 
-        await writer.drain()
-
-        if message.strip() == "QUIT":
-            break
+        match message.strip():
+            case "QUIT":
+                writer.write(b"QUIT")
+                break
+            case "LIST":
+                writer.write("LIST\n".encode())
+                await writer.drain()
+            case _:
+                writer.write((f"SEND;{message.strip()}\n").encode())
+                await writer.drain()
 
     print("Exiting...")
 
-async def read_messages(reader: asyncio.StreamReader):
+async def receive_messages(reader: asyncio.StreamReader):
     while True:
-        result: bytes = await reader.readline()
+        result: bytes = await reader.read(2137)
 
-        respone = result.decode()
+        code, _, content = result.decode().partition(";")
 
-        print(respone.strip())
+        #print(code, content, "bruh")
+        match code:
+            case 'SEND':
+                print(content.strip())
+            case 'INPUT':
+                print("Respond to:", content.strip())
+                #user_in = input(content)
+                #writer.write(f"RESPONSE;{user_in}\n".encode())
+                #await writer.drain()
+
+
+            #case 'INFO DH BASE':
+            #    data['p'], data['g'] = content.split(":")
+            #    print(data)
+
+
 
 
 async def main():
@@ -30,16 +52,16 @@ async def main():
         reader, writer = await asyncio.open_connection(server_host, server_port)
         print("Connection established.")
 
-        read_task = asyncio.create_task(read_messages(reader))
+        read_task = asyncio.create_task(receive_messages(reader))
 
-        await write_messages(writer)
+        await send_messages(writer)
 
         read_task.cancel()
         print("Disconnecting...")
-        # Nie wymyslilem nic lepszego bruh ale jest pewnie cos
+        # Awful solution but had nothing else in mind :/
         await asyncio.sleep(3)
 
-        print("closing")
+        print("Closing")
         writer.close()
         await writer.wait_closed()
 
