@@ -6,9 +6,9 @@ path = r"C:\Users\Julian\PycharmProjects\local_chat\\"
 
 # Start the server in a new terminal window
 subprocess.Popen(['start', 'cmd', '/k', f'python {path}main.py'], shell=True)
-instances = 2
+instances = 1
 # Give the server some time to start
-time.sleep(5)
+time.sleep(2)
 
 for _ in range(instances):
 

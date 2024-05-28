@@ -1,8 +1,14 @@
 import asyncio
+from typing import Literal, Any
 from sympy import randprime
 from dh import mod_exp, get_shared_key, get_public_key
+from rsa_ed import generate_key_pair, encrypt, decrypt
 
 ALL_USERS = {}
+
+user_safe: dict[str, dict[Literal['base', 'modulus', 'a_public', 'b_public', 'private', 'shared'], Any]] = {}
+user_rsa: dict[str, dict[Literal['u_public', 's_public', 's_private'], tuple[int, int]]] = {}
+
 sys_msg = {
     "welcome": "Welcome! Write QUIT to leave. ( please don't )\n"
 }
@@ -13,7 +19,7 @@ async def send_message(writer: asyncio.StreamWriter, msg_bytes: bytes):
 
 async def broadcast_message(message: str | list[str], code: str, blacklist=[], newline: bool=True):
     if isinstance(message, list):
-        await broadcast_lines(message)
+        await broadcast_lines(message, code)
     else:
 
         print(f"Broadcast: '{code};{message.strip()}' to all except: {blacklist}")
@@ -37,20 +43,27 @@ async def broadcast_message(message: str | list[str], code: str, blacklist=[], n
 
 
 async def connect_user(reader: asyncio.StreamReader, writer: asyncio.StreamWriter):
-    writer.write("INPUT;Enter nickname:\n".encode())
+
+    await send_message(writer, "INPUT;Enter nickname:\n".encode())
     name_bytes = await reader.readline()
     res = name_bytes.decode().strip()
     code, _, name = res.partition(';') 
-    #p, g = randprime(2137, 50007), randprime(2137, 50007)
-    #print(p, g)
-    # writer.write(f"INFO DH BASE;{p}:{g}".encode())
+    p, g = randprime(2137, 50007), randprime(2137, 50007)
+    user_safe[name] = {} # 1h wasted on this. wow
+    user_safe[name]['modulus'] = p
+    user_safe[name]['base'] = g
+    user_safe[name]['private'] = randprime(2137, 50007)
+
+    user_safe[name]['a_public'] = get_public_key(g, user_safe[name]['private'], p)
+
+
+    await send_message(writer, f"INFO DH BASE;{p}:{g}".encode())
 
 
     global ALL_USERS
 
     ALL_USERS[name] = (reader, writer)
     await broadcast_message(f"{name} joined the chat!", 'SEND', blacklist=[name])
-
 
     await send_message(writer, sys_msg['welcome'].encode())
     #await send_message(writer, sys_msg['welcome'].encode())
@@ -83,7 +96,7 @@ async def handle_chat_client(reader: asyncio.StreamReader, writer: asyncio.Strea
     name = await connect_user(reader, writer)
     try:
         while True:
-            line_bytes = await reader.readline()
+            line_bytes = await reader.read(2137)
             code, _, line = line_bytes.decode().partition(";")
             if not line.strip() and code == 'SEND':
                 continue
@@ -107,9 +120,31 @@ async def handle_chat_client(reader: asyncio.StreamReader, writer: asyncio.Strea
                 case "SEND":
                     # await broadcast_message(line, 'SEND', blacklist=[name])
                     await broadcast_message(f"{name}: {line}", "SEND", blacklist=[name], newline=False)
-                case "INFO DH PUB":
-                    ...
+                case "INFO DH U_PUB":
 
+
+                    await send_message(writer, f"INFO DH S_PUB;{user_safe[name]['a_public']}".encode())
+
+                    user_safe[name]['b_public'] = int(line)
+                    user_safe[name]['shared'] = get_shared_key(int(line), user_safe[name]['private'], user_safe[name]['modulus'])
+                case "INFO RSA U_PUB":
+                    user_rsa[name] = {}
+                    print(1)
+                    a, b = map(int, line.split(':'))
+                    user_rsa[name]['u_public'] = (a, b)
+                    print(user_rsa)
+                    
+                    p, q = randprime(2137, 50007), randprime(2137, 50007)
+
+                    public_key, private_key = generate_key_pair(p, q)
+                    user_rsa[name]['s_public'], user_rsa[name]['s_private'] = public_key, private_key
+                    print(2, user_rsa)
+                    await send_message(writer, f"INFO RSA S_PUB;{user_rsa[name]['s_public'][0]}:{user_rsa[name]['s_public'][1]}".encode())
+
+
+                #     user_rsa[name] = {}
+                #     user_rsa[name]['u_public'] = int(line)
+                #     await send_message(writer, f"
 
     finally:
         

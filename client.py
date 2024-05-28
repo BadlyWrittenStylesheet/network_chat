@@ -1,27 +1,56 @@
 import asyncio
 import sys
+from typing import Literal
+from sympy import randprime, use
+from rsa_ed import generate_key_pair, encrypt, decrypt
+
+from dh import mod_exp, get_shared_key, get_public_key
 
 
 data = {}
+user_dh: dict[Literal['base', 'modulus', 'a_public', 'b_public', 'private', 'shared'], int] = {}
+user_rsa: dict[Literal['s_public', 'u_public', 'u_private'], tuple[int, int]] = {}
 
-async def send_messages(writer):
+sys_msg = {
+    'help': "H-Help?\n'QUIT' to exit chat\n'LIST' list all users with ip\n'HELP' to show this wonderful message"
+}
+
+async def send_message(writer: asyncio.StreamWriter, message: str, newline=True):
+    message += "\n" if newline else ''
+    msg_bytes = message.encode()
+    writer.write(msg_bytes)
+    await writer.drain()
+
+async def send_encrypted(writer, message, public_key, newline=True):
+    message = " ".join(map(str, encrypt(public_key, message)))
+    print(message)
+    await send_message(writer, message, newline)
+
+async def read_message(writer):
     while True:
         message = await asyncio.to_thread(sys.stdin.readline)
-
+        
+        # if not user_rsa: continue
+        if 'name' not in data.keys():
+            data['name'] = message.strip()
+            await send_message(writer, f"SEND;{message.strip()}")
+            continue
         match message.strip():
             case "QUIT":
-                writer.write(b"QUIT")
+                await send_encrypted(writer, "QUIT", user_rsa['s_public'])
                 break
             case "LIST":
-                writer.write("LIST\n".encode())
-                await writer.drain()
+                await send_encrypted(writer, "LIST", user_rsa['s_public'])
+            case "HELP":
+                print(sys_msg['help'])
+            case 'DH':
+                print(user_dh)
             case _:
-                writer.write((f"SEND;{message.strip()}\n").encode())
-                await writer.drain()
+                await send_encrypted(writer, f"SEND;{message.strip()}", user_rsa['s_public'])
 
     print("Exiting...")
 
-async def receive_messages(reader: asyncio.StreamReader):
+async def receive_messages(reader: asyncio.StreamReader, writer: asyncio.StreamWriter):
     while True:
         result: bytes = await reader.read(2137)
 
@@ -32,7 +61,40 @@ async def receive_messages(reader: asyncio.StreamReader):
             case 'SEND':
                 print(content.strip())
             case 'INPUT':
-                print("Respond to:", content.strip())
+                print(content.strip())
+            case "INFO DH BASE":
+                # print('info dh base c')
+                p, g = map(int, content.split(':'))
+                user_dh['modulus'], user_dh['base'] = p, g
+
+                user_dh['private']: int = randprime(2137, 50007)
+
+                user_dh['b_public'] = get_public_key(g, user_dh['private'], p)
+
+                print(21212121)
+                await send_message(writer, f"INFO DH U_PUB;{user_dh['b_public']}")
+            case "INFO DH S_PUB":
+                user_dh['a_public'] = int(content)
+                user_dh['shared'] = get_shared_key(user_dh['a_public'], user_dh['private'], user_dh['modulus'])
+
+                p, q = randprime(2137, 50007), randprime(2137, 50007)
+
+                
+                # Here works.
+                public_key, private_key = generate_key_pair(p, q)
+                user_rsa['u_public'], user_rsa['u_private'] = public_key, private_key
+                print(user_rsa)
+
+                await send_message(writer, f"INFO RSA U_PUB;{user_rsa['u_public'][0]}:{user_rsa['u_public'][1]}")
+            case "INFO RSA S_PUB":
+                a, b = map(int, content.split(":"))
+                print(a, b)
+                user_rsa['s_public'] = (a, b)
+
+                print(int(content))
+
+
+                
                 #user_in = input(content)
                 #writer.write(f"RESPONSE;{user_in}\n".encode())
                 #await writer.drain()
@@ -52,9 +114,9 @@ async def main():
         reader, writer = await asyncio.open_connection(server_host, server_port)
         print("Connection established.")
 
-        read_task = asyncio.create_task(receive_messages(reader))
+        read_task = asyncio.create_task(receive_messages(reader, writer))
 
-        await send_messages(writer)
+        await read_message(writer)
 
         read_task.cancel()
         print("Disconnecting...")
