@@ -1,7 +1,7 @@
 import asyncio
 import sys
 from typing import Literal
-from sympy import randprime, use
+from sympy import randprime
 from rsa_ed import generate_key_pair, encrypt, decrypt
 
 from dh import mod_exp, get_shared_key, get_public_key
@@ -22,7 +22,7 @@ async def send_message(writer: asyncio.StreamWriter, message: str, newline=True)
     await writer.drain()
 
 async def send_encrypted(writer, message, public_key, newline=True):
-    message = " ".join(map(str, encrypt(public_key, message)))
+    message = " ".join(map(str, encrypt(public_key, message + str(user_dh['shared']))))
     print(message)
     await send_message(writer, message, newline)
 
@@ -46,7 +46,10 @@ async def read_message(writer):
             case 'DH':
                 print(user_dh)
             case _:
-                await send_encrypted(writer, f"SEND;{message.strip()}", user_rsa['s_public'])
+                if user_rsa:
+                    await send_encrypted(writer, f"SEND;{message.strip()}", user_rsa['s_public'])
+                else:
+                    await send_message(writer, f"SEND;{message.strip()}")
 
     print("Exiting...")
 
@@ -55,14 +58,23 @@ async def receive_messages(reader: asyncio.StreamReader, writer: asyncio.StreamW
         result: bytes = await reader.read(2137)
 
         code, _, content = result.decode().partition(";")
+        if not content: continue
 
         #print(code, content, "bruh")
+        try:
+            code = decrypt(user_rsa['u_private'], list(map(int, code.split(" "))))
+            content = decrypt(user_rsa['u_private'], list(map(int, code.split(" "))))
+            print(1, code, content)
+        except Exception as e:
+            print("Sth wrnt wrong when decrypting oopsies!", str(e))
+        print("code and content: ", code, content)
         match code:
             case 'SEND':
                 print(content.strip())
             case 'INPUT':
                 print(content.strip())
             case "INFO DH BASE":
+                print("Initializing Key Exchange Protocol...")
                 # print('info dh base c')
                 p, g = map(int, content.split(':'))
                 user_dh['modulus'], user_dh['base'] = p, g
@@ -71,7 +83,6 @@ async def receive_messages(reader: asyncio.StreamReader, writer: asyncio.StreamW
 
                 user_dh['b_public'] = get_public_key(g, user_dh['private'], p)
 
-                print(21212121)
                 await send_message(writer, f"INFO DH U_PUB;{user_dh['b_public']}")
             case "INFO DH S_PUB":
                 user_dh['a_public'] = int(content)
@@ -81,18 +92,17 @@ async def receive_messages(reader: asyncio.StreamReader, writer: asyncio.StreamW
 
                 
                 # Here works.
+                print("Exchanging public keys")
                 public_key, private_key = generate_key_pair(p, q)
                 user_rsa['u_public'], user_rsa['u_private'] = public_key, private_key
-                print(user_rsa)
 
                 await send_message(writer, f"INFO RSA U_PUB;{user_rsa['u_public'][0]}:{user_rsa['u_public'][1]}")
+
             case "INFO RSA S_PUB":
                 a, b = map(int, content.split(":"))
-                print(a, b)
                 user_rsa['s_public'] = (a, b)
 
-                print(int(content))
-
+                print("Up and running securely ;)")
 
                 
                 #user_in = input(content)

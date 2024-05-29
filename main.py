@@ -17,6 +17,21 @@ async def send_message(writer: asyncio.StreamWriter, msg_bytes: bytes):
     writer.write(msg_bytes)
     await writer.drain()
 
+async def send_encrypted(writer: asyncio.StreamWriter, public_key: tuple[int, int], signature: str, message: str, code: str, blacklist=[]):
+    message = " ".join(map(str, encrypt(public_key, "CODE;" + message + str(signature))))
+    print('msg: ', message)
+    msg_bytes = message.encode()
+
+    people = {}
+    for n, (r, w) in ALL_USERS.items():
+        if n not in blacklist:
+            people[n] = (r, w)
+
+    if people:
+        tasks = [asyncio.create_task(send_message(w, message.encode())) for _, (_, w) in people.items()]
+        await asyncio.wait(tasks)
+
+
 async def broadcast_message(message: str | list[str], code: str, blacklist=[], newline: bool=True):
     if isinstance(message, list):
         await broadcast_lines(message, code)
@@ -38,7 +53,7 @@ async def broadcast_message(message: str | list[str], code: str, blacklist=[], n
                 people[n] = (r, w)
 
         if people:
-            tasks = [asyncio.create_task(send_message(w, msg_bytes)) for _, (_, w) in people.items()]
+            tasks = [asyncio.create_task(send_encrypted(w, user_rsa[n]['u_public'], user_safe[n]['shared'], message, "SEND")) for n, (_, w) in people.items()]
             await asyncio.wait(tasks)
 
 
@@ -100,6 +115,39 @@ async def handle_chat_client(reader: asyncio.StreamReader, writer: asyncio.Strea
             code, _, line = line_bytes.decode().partition(";")
             if not line.strip() and code == 'SEND':
                 continue
+
+            match code:
+                case "INFO DH U_PUB":
+
+
+                    await send_message(writer, f"INFO DH S_PUB;{user_safe[name]['a_public']}".encode())
+
+                    user_safe[name]['b_public'] = int(line)
+                    user_safe[name]['shared'] = get_shared_key(int(line), user_safe[name]['private'], user_safe[name]['modulus'])
+                case "INFO RSA U_PUB":
+                    user_rsa[name] = {}
+                    a, b = map(int, line.split(':'))
+                    user_rsa[name]['u_public'] = (a, b)
+                    
+                    p, q = randprime(2137, 50007), randprime(2137, 50007)
+
+                    public_key, private_key = generate_key_pair(p, q)
+                    user_rsa[name]['s_public'], user_rsa[name]['s_private'] = public_key, private_key
+                    await send_message(writer, f"INFO RSA S_PUB;{user_rsa[name]['s_public'][0]}:{user_rsa[name]['s_public'][1]}".encode())
+                case _:
+                    try:
+                        print("received:", line_bytes.decode().split(" "))
+                        decoded = decrypt(user_rsa[name]['s_private'], list(map(int, line_bytes.decode().split(" "))))
+                        code, _, line = decoded.partition(';')
+                        if line.endswith(str(user_safe[name]['shared'])):
+                            line = line[:-len(str(user_safe[name]['shared']))]
+                        else:
+                            print('fake msg received bruh')
+                            continue
+                    except Exception as e:
+                        print('Oopsie daisy, error:', str(e))
+
+
             match code.strip():
                 case 'QUIT':
                     break
@@ -120,27 +168,6 @@ async def handle_chat_client(reader: asyncio.StreamReader, writer: asyncio.Strea
                 case "SEND":
                     # await broadcast_message(line, 'SEND', blacklist=[name])
                     await broadcast_message(f"{name}: {line}", "SEND", blacklist=[name], newline=False)
-                case "INFO DH U_PUB":
-
-
-                    await send_message(writer, f"INFO DH S_PUB;{user_safe[name]['a_public']}".encode())
-
-                    user_safe[name]['b_public'] = int(line)
-                    user_safe[name]['shared'] = get_shared_key(int(line), user_safe[name]['private'], user_safe[name]['modulus'])
-                case "INFO RSA U_PUB":
-                    user_rsa[name] = {}
-                    print(1)
-                    a, b = map(int, line.split(':'))
-                    user_rsa[name]['u_public'] = (a, b)
-                    print(user_rsa)
-                    
-                    p, q = randprime(2137, 50007), randprime(2137, 50007)
-
-                    public_key, private_key = generate_key_pair(p, q)
-                    user_rsa[name]['s_public'], user_rsa[name]['s_private'] = public_key, private_key
-                    print(2, user_rsa)
-                    await send_message(writer, f"INFO RSA S_PUB;{user_rsa[name]['s_public'][0]}:{user_rsa[name]['s_public'][1]}".encode())
-
 
                 #     user_rsa[name] = {}
                 #     user_rsa[name]['u_public'] = int(line)
