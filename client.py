@@ -1,145 +1,150 @@
 import asyncio
 import sys
-from typing import Literal
 from sympy import randprime
+import random
+import hashlib
+from ast import literal_eval
+from typing import Literal
+from dh import get_shared_key, get_public_key
 from rsa_ed import generate_key_pair, encrypt, decrypt
 
-from dh import mod_exp, get_shared_key, get_public_key
+from tools import decrypt_message, format_to_send, send, encrypt_message, parse_message, send, await_message, MUT, User
+
+min_prime, max_prime = 1000, 9999
+# from tools import serialize, deserialize
 
 
-data = {}
-user_dh: dict[Literal['base', 'modulus', 'a_public', 'b_public', 'private', 'shared'], int] = {}
-user_rsa: dict[Literal['s_public', 'u_public', 'u_private'], tuple[int, int]] = {}
 
-sys_msg = {
-    'help': "H-Help?\n'QUIT' to exit chat\n'LIST' list all users with ip\n'HELP' to show this wonderful message"
-}
 
-async def send_message(writer: asyncio.StreamWriter, message: str, newline=True):
-    message += "\n" if newline else ''
-    msg_bytes = message.encode()
-    writer.write(msg_bytes)
-    await writer.drain()
 
-async def send_encrypted(writer, message, public_key, newline=True):
-    message = " ".join(map(str, encrypt(public_key, message + str(user_dh['shared']))))
-    print(message)
-    await send_message(writer, message, newline)
 
-async def read_message(writer):
+
+
+
+async def exchange_keys(reader: asyncio.StreamReader, writer: asyncio.StreamWriter) -> dict:
+    # DODAC TYP!!!
+    storage = {}
+    message = await await_message(reader)
+    method, data = parse_message(message.decode())
+    
+    if method != 'KEY_EXCHANGE':
+        print("Wrong method?", method)
+        return
+
+    # Diffie Helman Diffie Helman Diffie Helman Diffie Helman Diffie Helman
+    # Diffie Helman Diffie Helman Diffie Helman Diffie Helman Diffie Helman
+
+    private_key = randprime(min_prime, max_prime)
+
+    base = int(data['DH_BASE'])
+    modulus = int(data['DH_MOD'])
+    s_public_dh = int(data['DH_KEY'])
+    s_public_rsa = literal_eval(data['RSA_KEY'])
+
+    storage['base'] = base
+    storage['modulus'] = modulus
+    storage['private_dh'] = private_key
+    storage['s_public_dh'] = s_public_dh
+
+    u_public_dh = get_public_key(base, private_key, modulus)
+    storage['u_public_dh'] = u_public_dh
+
+    shared = get_shared_key(s_public_dh, private_key, modulus)
+    storage['shared'] = shared
+
+    # RSA stuff
+    
+    # Servers
+    storage['s_public_rsa'] = s_public_rsa
+    # print("uuuu", s_public_rsa, type(s_public_rsa))
+
+    # User
+    p, q = randprime(min_prime, max_prime), randprime(min_prime, max_prime)
+    u_public_rsa, u_private_rsa = generate_key_pair(p, q)
+
+    storage['u_public_rsa'] = u_public_rsa
+    storage['u_private_rsa'] = u_private_rsa
+    
+    
+
+    message = f"""KEY_EXCHANGE
+DH_KEY:{u_public_dh}
+RSA_KEY:{u_public_rsa}"""
+
+    await send(writer, message.encode())
+    return storage
+    
+
+
+
+    
+    
+
+async def receive_messages(reader: asyncio.StreamReader, writer: asyncio.StreamWriter, storage):
     while True:
-        message = await asyncio.to_thread(sys.stdin.readline)
-        
-        # if not user_rsa: continue
-        if 'name' not in data.keys():
-            data['name'] = message.strip()
-            await send_message(writer, f"SEND;{message.strip()}")
+        result = await await_message(reader)
+        if not result: continue
+        # print("RESULT", repr(result))
+
+        message = decrypt_message(storage['u_private_rsa'], storage['shared'], result.decode())
+        if not message:
+            print("bad message")
             continue
-        match message.strip():
-            case "QUIT":
-                await send_encrypted(writer, "QUIT", user_rsa['s_public'])
-                break
-            case "LIST":
-                await send_encrypted(writer, "LIST", user_rsa['s_public'])
-            case "HELP":
-                print(sys_msg['help'])
-            case 'DH':
-                print(user_dh)
-            case _:
-                if user_rsa:
-                    await send_encrypted(writer, f"SEND;{message.strip()}", user_rsa['s_public'])
-                else:
-                    await send_message(writer, f"SEND;{message.strip()}")
+        method, data = parse_message(message)
 
-    print("Exiting...")
+        match method:
+            case 'ACTION':
+                match data['event']:
+                    case 'user_join':
+                        print(f"Welcome to chat {data['name']}!!!")
+                    case 'send_public_message':
+                        print(f"{data['name']}: {data['value']}")
 
-async def receive_messages(reader: asyncio.StreamReader, writer: asyncio.StreamWriter):
+
+        # print("received", result)
+
+        
+        # print(method, data)
+
+async def read_messages(reader, writer, storage):
     while True:
-        result: bytes = await reader.read(2137)
-
-        code, _, content = result.decode().partition(";")
-        if not content: continue
-
-        #print(code, content, "bruh")
-        try:
-            code = decrypt(user_rsa['u_private'], list(map(int, code.split(" "))))
-            content = decrypt(user_rsa['u_private'], list(map(int, code.split(" "))))
-            print(1, code, content)
-        except Exception as e:
-            print("Sth wrnt wrong when decrypting oopsies!", str(e))
-        print("code and content: ", code, content)
-        match code:
-            case 'SEND':
-                print(content.strip())
-            case 'INPUT':
-                print(content.strip())
-            case "INFO DH BASE":
-                print("Initializing Key Exchange Protocol...")
-                # print('info dh base c')
-                p, g = map(int, content.split(':'))
-                user_dh['modulus'], user_dh['base'] = p, g
-
-                user_dh['private']: int = randprime(2137, 50007)
-
-                user_dh['b_public'] = get_public_key(g, user_dh['private'], p)
-
-                await send_message(writer, f"INFO DH U_PUB;{user_dh['b_public']}")
-            case "INFO DH S_PUB":
-                user_dh['a_public'] = int(content)
-                user_dh['shared'] = get_shared_key(user_dh['a_public'], user_dh['private'], user_dh['modulus'])
-
-                p, q = randprime(2137, 50007), randprime(2137, 50007)
-
-                
-                # Here works.
-                print("Exchanging public keys")
-                public_key, private_key = generate_key_pair(p, q)
-                user_rsa['u_public'], user_rsa['u_private'] = public_key, private_key
-
-                await send_message(writer, f"INFO RSA U_PUB;{user_rsa['u_public'][0]}:{user_rsa['u_public'][1]}")
-
-            case "INFO RSA S_PUB":
-                a, b = map(int, content.split(":"))
-                user_rsa['s_public'] = (a, b)
-
-                print("Up and running securely ;)")
-
-                
-                #user_in = input(content)
-                #writer.write(f"RESPONSE;{user_in}\n".encode())
-                #await writer.drain()
-
-
-            #case 'INFO DH BASE':
-            #    data['p'], data['g'] = content.split(":")
-            #    print(data)
+        message = await asyncio.to_thread(input)
+        if not message: continue
+        msg = encrypt_message(storage['s_public_rsa'], storage['shared'], format_to_send('ACTION', event='send_public_message', value=message))
+        await send(writer, msg)
 
 
 
+async def connect_to_server(server_host, server_port):# -> tuple[asyncio.StreamReader, asyncio.StreamWriter, dict]:
+    reader, writer = await asyncio.open_connection(server_host, server_port)
+    # print("Exchanging keys")
+    storage = await exchange_keys(reader, writer)
+    # print("Keys exchanged")
+    name = "Anonymous#" + hashlib.md5(str(random.choice(list(storage.values()))).encode()).hexdigest()[::2]
+    input(f"Your name is {name}, can't change it <3... *psst* click <enter> to proceed!")
+    await send(writer, encrypt_message(storage['s_public_rsa'], str(storage['shared']), format_to_send('ACTION', event='set_username', value=name)))
+
+    return name, reader, writer, storage
 
 async def main():
-    try:
-        server_host, server_port = '127.0.0.1', 50007
-        print(f"Establishing connection to: {server_host}:{server_port}...")
-        reader, writer = await asyncio.open_connection(server_host, server_port)
-        print("Connection established.")
-
-        read_task = asyncio.create_task(receive_messages(reader, writer))
-
-        await read_message(writer)
-
-        read_task.cancel()
-        print("Disconnecting...")
-        # Awful solution but had nothing else in mind :/
-        await asyncio.sleep(3)
-
-        print("Closing")
-        writer.close()
-        await writer.wait_closed()
-
-        print("Bye!")
-    except ConnectionRefusedError:
-        print("Failed to establish connection, check if the host is online and try again.")
+    server_host, server_port = '127.0.0.1', 50007
+    # reader, writer = await asyncio.open_connection()
     
-asyncio.run(main())
+    name, reader, writer, storage = await connect_to_server(server_host, server_port)
+    storage = {k: storage[k] for k in sorted(storage)}
+    # print("\n".join([f"{k} : {v} ~ {type(v)}" for k, v in storage.items()]))
+    print("Connection established")
 
+    receive_task = asyncio.create_task(receive_messages(reader, writer, storage))
+
+    await read_messages(reader, writer, storage)
+
+    receive_task.cancel()
+
+        # from_stdin = sys.stdin.readline()
+        # if from_stdin.strip() == 'q':
+        #     break
+
+
+if __name__ == '__main__':
+    asyncio.run(main())

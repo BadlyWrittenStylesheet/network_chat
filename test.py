@@ -5,7 +5,7 @@ import time
 path = r"C:\Users\Julian\PycharmProjects\local_chat\\"
 
 # Start the server in a new terminal window
-subprocess.Popen(['start', 'cmd', '/k', f'python {path}main.py'], shell=True)
+subprocess.Popen(['start', 'cmd', '/k', f'python {path}server.py'], shell=True)
 instances = 2
 # Give the server some time to start
 time.sleep(2)

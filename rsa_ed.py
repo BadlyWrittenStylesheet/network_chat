@@ -44,9 +44,13 @@ def is_prime(n: int):
 def generate_key_pair(p: int, q: int) -> tuple[tuple[int, int], tuple[int, int]]:
     # they wont ok?
     if not is_prime(p) or not is_prime(q):
-        raise ValueError("p and q must be prime")
+        print("ARENT PRIMES WWWWWWWWWW")
+        exit()
+        # raise ValueError("p and q must be prime")
     elif p == q:
-        raise ValueError("p and q cant be equal")
+        print("ARE EQUAL")
+        exit()
+        # raise ValueError("p and q cant be equal")
 
     n = p * q
 
