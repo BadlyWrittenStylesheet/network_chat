@@ -1,3 +1,6 @@
+# !!!
+# Liters of tears shed over this code: 1.3L
+
 from ast import literal_eval
 import asyncio
 from typing import Literal, Any
@@ -80,7 +83,7 @@ RSA_KEY:{s_public_rsa}
 
 
 async def broadcast_message(message: str, blacklist=[]):
-    print(f"Broadcasting")
+    print(f"Broadcasting {repr(message)}")
     receivers = [(u.writer, mut) for u, mut in USERS if u.username not in blacklist]
 
     if receivers:
@@ -93,50 +96,87 @@ async def connect_user(reader: asyncio.StreamReader, writer: asyncio.StreamWrite
     storage = await exchange_keys(reader, writer)
     return storage
 
+async def disconnect_user(u: User):
+    u.writer.close()
+    await u.writer.wait_closed()
+
+    global USERS
+
+
+    # USERS = list(filter(lambda x: u == x, USERS))
+    USERS = [o for o in USERS if o.username != u.username]
+    # USERS.remove(u)
+    await broadcast_message(format_to_send("ACTION", event='user_leave', name=u.username))
+    del u
 
 
 
 
 async def handle_chat_client(reader: asyncio.StreamReader, writer: asyncio.StreamWriter):
-    storage = await connect_user(reader, writer)
-    # storage = {k: storage[k] for k in sorted(storage)}
-    # print("\n".join([f"{k} : {v} ~ {type(v)}" for k, v in storage.items()]))
-    print("User connected.")
+    try:
+        storage = await connect_user(reader, writer)
+        # storage = {k: storage[k] for k in sorted(storage)}
+        # print("\n".join([f"{k} : {v} ~ {type(v)}" for k, v in storage.items()]))
+        print("User connected.")
 
-    mut = MUT(storage['s_private_rsa'], storage['shared'], storage['u_public_rsa'])
+        mut = MUT(storage['s_private_rsa'], storage['shared'], storage['u_public_rsa'])
 
-    while True:
-        message = await await_message(reader)
-        # print("Received:", message)
-        # message = decrypt_message(storage['s_private_rsa'], storage['shared'], message.decode())
-        message = mut.decrypt(message.decode())
-        if not message:
-            continue
-        method, data = parse_message(message)
+        while True:
+            message = await await_message(reader)
+            if not message: continue
+            # print("Received:", message)
+            # message = decrypt_message(storage['s_private_rsa'], storage['shared'], message.decode())
+            message = mut.decrypt(message.decode())
+            if not message:
+                continue
+            method, data = parse_message(message)
 
-        match method:
-            case 'ACTION':
-                match data['event']:
-                    case 'set_username':
-                        u = User(username=data['value'], ip=writer.get_extra_info('peername')[0], port=writer.get_extra_info('peername')[1], reader=reader, writer=writer, keys=storage)
-                        USERS.append((u, mut))
-                        msg = format_to_send('ACTION', event='user_join', name=u.username)
-                        print(repr(msg))
-                        await broadcast_message(msg, [u.username])
-                    case 'send_public_message':
-                        msg = format_to_send('ACTION', event='send_public_message', name=u.username, value=data['value'])
-                        await broadcast_message(msg, [u.username])
+
+            match method:
+                case 'ACTION':
+                    match data['event']:
+                        case 'set_username':
+                            u = User(username=data['value'], ip=writer.get_extra_info('peername')[0], port=writer.get_extra_info('peername')[1], reader=reader, writer=writer, keys=storage)
+                            USERS.append((u, mut))
+                            msg = format_to_send('ACTION', event='user_join', name=u.username)
+                            # print(repr(msg))
+                            await broadcast_message(msg, [u.username])
+                        case 'send_public_message':
+                            msg = format_to_send('ACTION', event='send_public_message', name=u.username, value=data['value'])
+                            await broadcast_message(msg, [u.username])
+                        case 'user_leave':
+                            print("Disconect")
+                            await disconnect_user(u)
+                            # I have no idea what is going on here, and I don't want to. Enough tears already.'
+                            break
+                case 'DATA':
+                    match data['request']:
+                        case 'list':
+                            try:
+                                user_list = [(user.username, *user.writer.get_extra_info('peername')) for user, _ in USERS]
+                                msg = format_to_send('DATA', request="list", value=user_list)
+                                await broadcast_message(msg)
+                            except Exception as e:
+                                print(str(e))
+    except ConnectionResetError:
+        print("Client disconnected, oopsie!")
+        writer.close()
+        await writer.wait_closed()
 
 
             
 
 async def main():
-    addr, port = '', 50007
-    server = await asyncio.start_server(handle_chat_client, addr, port)
+    try:
+        addr, port = '', 50007
+        server = await asyncio.start_server(handle_chat_client, addr, port)
 
-    async with server:
-        print("Server is running forever... forever... anyways copy the terminal to stop <3")
-        await server.serve_forever()
+        async with server:
+            print("Server is running forever... forever... anyways copy the terminal to stop <3")
+            await server.serve_forever()
+    except Exception as e:
+        print(str(e))
+
 
 if __name__ == '__main__':
     asyncio.run(main())

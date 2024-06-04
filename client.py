@@ -99,6 +99,13 @@ async def receive_messages(reader: asyncio.StreamReader, writer: asyncio.StreamW
                         print(f"Welcome to chat {data['name']}!!!")
                     case 'send_public_message':
                         print(f"{data['name']}: {data['value']}")
+                    case 'user_leave':
+                        print(f"{data['name']} left the chat unfortunately.")
+            case 'DATA':
+                match data['request']:
+                    case 'list':
+                        print("\n".join(literal_eval(data['value'])))
+                        # print(literal_eval(data['value']))
 
 
         # print("received", result)
@@ -107,11 +114,28 @@ async def receive_messages(reader: asyncio.StreamReader, writer: asyncio.StreamW
         # print(method, data)
 
 async def read_messages(reader, writer, storage):
+    mut = MUT(storage['u_private_rsa'], storage['shared'], storage['s_public_rsa'])
     while True:
         message = await asyncio.to_thread(input)
+        pairs = {}
         if not message: continue
-        msg = encrypt_message(storage['s_public_rsa'], storage['shared'], format_to_send('ACTION', event='send_public_message', value=message))
+        match message:
+            case '/quit':
+                method = 'ACTION'
+                pairs['event'] = 'user_leave'
+                pairs['value'] = message
+            case '/list':
+                method = 'DATA'
+                pairs['request'] = "list"
+
+            case _:
+                method = 'ACTION'
+                pairs['event'] = 'send_public_message'
+                pairs['value'] = message
+        # msg = encrypt_message(storage['s_public_rsa'], storage['shared'], format_to_send('ACTION', event='send_public_message', value=message))
+        msg = mut.encrypt(mut.format(method, **pairs))
         await send(writer, msg)
+        if message == '/quit': break
 
 
 
@@ -127,23 +151,33 @@ async def connect_to_server(server_host, server_port):# -> tuple[asyncio.StreamR
     return name, reader, writer, storage
 
 async def main():
-    server_host, server_port = '127.0.0.1', 50007
-    # reader, writer = await asyncio.open_connection()
-    
-    name, reader, writer, storage = await connect_to_server(server_host, server_port)
-    storage = {k: storage[k] for k in sorted(storage)}
-    # print("\n".join([f"{k} : {v} ~ {type(v)}" for k, v in storage.items()]))
-    print("Connection established")
+    try:
+        server_host, server_port = '127.0.0.1', 50007
+        # reader, writer = await asyncio.open_connection()
+        
+        name, reader, writer, storage = await connect_to_server(server_host, server_port)
+        storage = {k: storage[k] for k in sorted(storage)}
+        # print("\n".join([f"{k} : {v} ~ {type(v)}" for k, v in storage.items()]))
+        print("Connection established")
 
-    receive_task = asyncio.create_task(receive_messages(reader, writer, storage))
+        receive_task = asyncio.create_task(receive_messages(reader, writer, storage))
+        await read_messages(reader, writer, storage)
 
-    await read_messages(reader, writer, storage)
+        receive_task.cancel()
+        print("HATE RAISING ERRORS")
 
-    receive_task.cancel()
+        await asyncio.sleep(3)
 
-        # from_stdin = sys.stdin.readline()
-        # if from_stdin.strip() == 'q':
-        #     break
+        
+        writer.close()
+        await writer.wait_closed()
+
+            # from_stdin = sys.stdin.readline()
+            # if from_stdin.strip() == 'q':
+            #     break
+        print("Quittin'")
+    except ConnectionRefusedError:
+        print("Failed to establish connection, check if the host is online and try again.")
 
 
 if __name__ == '__main__':
