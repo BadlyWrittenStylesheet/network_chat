@@ -104,8 +104,12 @@ async def receive_messages(reader: asyncio.StreamReader, writer: asyncio.StreamW
             case 'DATA':
                 match data['request']:
                     case 'list':
-                        print("\n".join(literal_eval(data['value'])))
-                        # print(literal_eval(data['value']))
+                        try:
+                            # print(data['value'], type(data['value']))
+                            # print(literal_eval(data['value']))
+                            print("\n".join(map(str, literal_eval(data['value']))))
+                        except Exception as e:
+                            print(str(e))
 
 
         # print("received", result)

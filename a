@@ -137,7 +137,6 @@ async def handle_chat_client(reader: asyncio.StreamReader, writer: asyncio.Strea
                     match data['event']:
                         case 'set_username':
                             u = User(username=data['value'], ip=writer.get_extra_info('peername')[0], port=writer.get_extra_info('peername')[1], reader=reader, writer=writer, keys=storage)
-                            # print(u)
                             USERS.append((u, mut))
                             msg = format_to_send('ACTION', event='user_join', name=u.username)
                             # print(repr(msg))
